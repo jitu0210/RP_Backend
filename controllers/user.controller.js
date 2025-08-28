@@ -2,8 +2,7 @@ import User from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import bcrypt from 'bcrypt'; 
-// dfdsfdg
-// aman tiwary
+
 dotenv.config();
 
 const generateAccessToken = (userId) => {
