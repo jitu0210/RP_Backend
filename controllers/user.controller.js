@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 
 dotenv.config();
 
+//new comment
 const generateAccessToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "1d" });
 };
