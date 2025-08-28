@@ -34,3 +34,6 @@ Thumbs.db
 # IDE files (optional)
 .vscode/
 .idea/
+
+# other directory
+seedUsers.js/

@@ -1,44 +1,53 @@
+// src/models/user.model.js
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 
-const userSchema = new mongoose.Schema(
+const { Schema } = mongoose;
+
+const UserSchema = new Schema(
   {
     username: {
       type: String,
-      required: true, // <-- typo fixed (was `require`)
-    },
-    email: {
-      type: String,
       required: true,
       unique: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 50,
+      lowercase: true
     },
     password: {
       type: String,
       required: true,
+      minlength: 8
     },
-    branch: {
+    role: {
       type: String,
-      enum: ["MBA", "Electrical", "Electronics", "CSE", "Mechanical"],
-      required: false,
+      enum: ["user", "admin"],
+      default: "user"
     },
-    refreshtoken: {
-      type: String,
-    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
   },
-  { timestamps: true }
+  { versionKey: false }
 );
 
-// Hash password before saving
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
+UserSchema.pre("save", async function (next) {
+  try {
+    if (!this.isModified("password")) return next();
+    const saltRounds = parseInt(process.env.SALT_ROUNDS || "12", 10);
+    const salt = await bcrypt.genSalt(saltRounds);
+    this.password = await bcrypt.hash(this.password, salt);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 });
 
-// Compare entered password
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+UserSchema.methods.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model("User", UserSchema);
 export default User;

@@ -1,162 +1,72 @@
-import User from "../models/user.model.js";
+// src/controllers/user.controller.js
+import { validationResult } from "express-validator";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import bcrypt from 'bcrypt'; 
+import User from "../models/user.model.js";
 
-// dfdsfdg
-// aman tiwary
-// aman tiwary
 
-dotenv.config();
+function signToken(user) {
+  const payload = { sub: user._id.toString(), username: user.username, role: user.role };
+  const secret = process.env.JWT_SECRET;
+  const expiresIn = process.env.JWT_EXPIRES_IN || "1h";
+  return jwt.sign(payload, secret, { expiresIn });
+}
 
-const generateAccessToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "1d" });
-};
-
-const generateRefreshToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: "7d",
-  });
-};
-
-const registerUser = async (req, res) => {
+export const login = async (req, res) => {
   try {
-    const { username, email, password, branch } = req.body;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    if (!username || !email || !password || !branch) {
-      return res.status(400).json({
-        error: "Username, Email, Password, and branch are required",
-      });
-    }
+    const { username, password } = req.body;
+    const user = await User.findOne({ username: username.toLowerCase() });
+    if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    const existedUser = await User.findOne({
-      $or: [{ username }, { email }],
-    });
+    const match = await user.comparePassword(password);
+    if (!match) return res.status(401).json({ message: "Invalid credentials" });
 
-    if (existedUser) {
-      return res.status(400).json({
-        error: "User with same email or username already exists",
-      });
-    }
-
-    
-    const newUser = await User.create({
-      username,
-      email,
-      password,
-      branch,
-    });
-
-    const createdUser = await User.findById(newUser._id).select(
-      "-password -refreshtoken"
-    );
-
-    return res.status(201).json({
-      message: "User registered successfully",
-      user: createdUser,
-    });
-  } catch (error) {
-    console.error("Register error:", error);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-const loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    
-    const user = await User.findOne({ email }).select('+password');
-    
-    if (!user) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-    
-    
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: '1d'
-    });
-    
-    
-    const userData = user.toObject();
-    delete userData.password;
-    
-    res.status(200).json({ 
-      token,
-      user: userData
-    });
-    
+    const token = signToken(user);
+    // You may also issue a refresh token here (stored in DB/redis or HttpOnly cookie). Kept simple for clarity.
+    return res.json({ token, expiresIn: process.env.JWT_EXPIRES_IN || "1h", user: { id: user._id, username: user.username, role: user.role } });
   } catch (err) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: "Login failed. Please try again." });
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-const logoutUser = async (req, res) => {
-  try {
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Logged out successfully",
-    });
-  } catch (error) {
-    console.error("Logout error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Logout failed. Please try again.",
-    });
-  }
+/**
+ * Get profile of logged-in user
+ */
+export const me = async (req, res) => {
+  const id = req.user && req.user.sub;
+  if (!id) return res.status(401).json({ message: "Unauthorized" });
+  const user = await User.findById(id).select("-password");
+  if (!user) return res.status(404).json({ message: "User not found" });
+  return res.json({ user });
 };
 
-
-
-// Verify Token
-export const verifyToken = async (req, res) => {
+/**
+ * Admin-only: get list of users
+ */
+export const listUsers = async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({ error: "No token provided" });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    return res.status(200).json({ valid: true, user });
+    const users = await User.find().select("-password").lean();
+    return res.json({ users });
   } catch (err) {
-    return res.status(401).json({ error: "Invalid token" });
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
-
-// ---------------- Refresh Token ---------------- //getDep
-const refreshToken = (req, res) => {
-  const { token } = req.body;
-
-  if (!token) {
-    return res.status(400).json({ error: "Refresh token is required" });
+/**
+ * Admin-only: delete a user
+ */
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ message: "Missing user id" });
+    await User.findByIdAndDelete(id);
+    return res.json({ message: "User deleted" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
   }
-
-  jwt.verify(token, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ error: "Invalid refresh token" });
-
-    const accessToken = generateAccessToken(decoded.userId);
-    return res.status(200).json({ accessToken });
-  });
 };
-
-export { registerUser, loginUser, logoutUser, refreshToken,};
